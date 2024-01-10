@@ -1,6 +1,21 @@
-import scrapy
+import ssl
 
+import nltk
+import scrapy
+from nltk import word_tokenize
+from nltk.corpus import stopwords
 from scrapy.http import Response
+
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
+
+nltk.download("punkt")
+nltk.download("stopwords")
+STOP_WORDS = set(stopwords.words("english"))
 
 
 class VacanciesSpider(scrapy.Spider):
@@ -10,7 +25,9 @@ class VacanciesSpider(scrapy.Spider):
 
     def parse(self, response: Response, **kwargs):
 
-        for vacancy in response.css("div.job-list-item__title a::attr(href)").getall():
+        for vacancy in response.css(
+                "div.job-list-item__title a::attr(href)"
+        ).getall():
             yield response.follow(
                 url=response.urljoin(vacancy),
                 callback=self.parse_vacancies_from_page
@@ -36,7 +53,8 @@ class VacanciesSpider(scrapy.Spider):
         else:
             salary = None
         views = int(response.css("p.text-muted").re_first(r"(\d+) перегляд"))
-        applications = int(response.css("p.text-muted").re_first(r"(\d+) відгук"))
+        applications = int(
+            response.css("p.text-muted").re_first(r"(\d+) відгук"))
 
         return {
             "title": title,
@@ -45,4 +63,13 @@ class VacanciesSpider(scrapy.Spider):
             "salary": salary,
             "views": views,
             "applications": applications,
+            "technologies": self.parse_technologies(response),
         }
+
+    def parse_technologies(self, response: Response):
+        description = " ".join(response.css("div.mb-4::text").getall()).strip()
+        word_tokens = word_tokenize(description)
+        words = set(word.lower() for word in word_tokens if
+                    word.isalpha() and word.lower() not in STOP_WORDS)
+
+        return list(words)
